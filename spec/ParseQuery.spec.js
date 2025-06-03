@@ -6,6 +6,8 @@
 
 const Parse = require('parse/node');
 const request = require('../lib/request');
+const ParseServerRESTController = require('../lib/ParseServerRESTController').ParseServerRESTController;
+const ParseServer = require('../lib/ParseServer').default;
 
 const masterKeyHeaders = {
   'X-Parse-Application-Id': 'test',
@@ -5274,5 +5276,102 @@ describe('Parse.Query testing', () => {
     const result = await query.find();
     // Validate
     expect(result.executionStats).not.toBeUndefined();
+  });
+
+  it('should query with distinct within eachBatch and direct access enabled', async () => {
+    await reconfigureServer({
+      directAccess: true,
+    });
+
+    Parse.CoreManager.setRESTController(
+      ParseServerRESTController(Parse.applicationId, ParseServer.promiseRouter({ appId: Parse.applicationId }))
+    );
+
+    const user = new Parse.User();
+    user.set('username', 'foo');
+    user.set('password', 'bar');
+    await user.save();
+
+    const score = new Parse.Object('Score');
+    score.set('player', user);
+    score.set('score', 1);
+    await score.save();
+
+    await new Parse.Query('_User')
+      .equalTo('objectId', user.id)
+      .eachBatch(async ([user]) => {
+        const score = await new Parse.Query('Score')
+          .equalTo('player', user)
+          .distinct('score', { useMasterKey: true });
+        expect(score).toEqual([1]);
+      }, { useMasterKey: true });
+  });
+
+  describe_only_db('mongo')('query nested keys', () => {
+    it('queries nested key using equalTo', async () => {
+      const child = new Parse.Object('Child');
+      child.set('key', 'value');
+      await child.save();
+  
+      const parent = new Parse.Object('Parent');
+      parent.set('some', {
+        nested: {
+          key: {
+            child,
+          },
+        },
+      });
+      await parent.save();
+  
+      const query1 = await new Parse.Query('Parent')
+        .equalTo('some.nested.key.child', child)
+        .find();
+  
+      expect(query1.length).toEqual(1);
+    });
+  
+    it('queries nested key using containedIn', async () => {
+      const child = new Parse.Object('Child');
+      child.set('key', 'value');
+      await child.save();
+  
+      const parent = new Parse.Object('Parent');
+      parent.set('some', {
+        nested: {
+          key: {
+            child,
+          },
+        },
+      });
+      await parent.save();
+  
+      const query1 = await new Parse.Query('Parent')
+        .containedIn('some.nested.key.child', [child])
+        .find();
+  
+      expect(query1.length).toEqual(1);
+    });
+  
+    it('queries nested key using matchesQuery', async () => {
+      const child = new Parse.Object('Child');
+      child.set('key', 'value');
+      await child.save();
+  
+      const parent = new Parse.Object('Parent');
+      parent.set('some', {
+        nested: {
+          key: {
+            child,
+          },
+        },
+      });
+      await parent.save();
+  
+      const query1 = await new Parse.Query('Parent')
+        .matchesQuery('some.nested.key.child', new Parse.Query('Child').equalTo('key', 'value'))
+        .find();
+  
+      expect(query1.length).toEqual(1);
+    });
   });
 });

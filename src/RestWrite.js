@@ -367,6 +367,25 @@ RestWrite.prototype.setRequiredFieldsIfNeeded = function () {
         }
       };
 
+      // add default ACL
+      if (
+        schema?.classLevelPermissions?.ACL &&
+        !this.data.ACL &&
+        JSON.stringify(schema.classLevelPermissions.ACL) !==
+          JSON.stringify({ '*': { read: true, write: true } })
+      ) {
+        const acl = deepcopy(schema.classLevelPermissions.ACL);
+        if (acl.currentUser) {
+          if (this.auth.user?.id) {
+            acl[this.auth.user?.id] = deepcopy(acl.currentUser);
+          }
+          delete acl.currentUser;
+        }
+        this.data.ACL = acl;
+        this.storage.fieldsChangedByTrigger = this.storage.fieldsChangedByTrigger || [];
+        this.storage.fieldsChangedByTrigger.push('ACL');
+      }
+
       // Add default fields
       if (!this.query) {
         // allow customizing createdAt and updatedAt when using maintenance key
@@ -458,9 +477,8 @@ RestWrite.prototype.validateAuthData = function () {
   var providers = Object.keys(authData);
   if (providers.length > 0) {
     const canHandleAuthData = providers.some(provider => {
-      var providerAuthData = authData[provider];
-      var hasToken = providerAuthData && providerAuthData.id;
-      return hasToken || providerAuthData === null;
+      const providerAuthData = authData[provider] || {};
+      return !!Object.keys(providerAuthData).length;
     });
     if (canHandleAuthData || hasUsernameAndPassword || this.auth.isMaster || this.getUserId()) {
       return this.handleAuthData(authData);
@@ -505,7 +523,7 @@ RestWrite.prototype.ensureUniqueAuthDataId = async function () {
     key => this.data.authData[key] && this.data.authData[key].id
   );
 
-  if (!hasAuthDataId) return;
+  if (!hasAuthDataId) { return; }
 
   const r = await Auth.findUsersWithAuthData(this.config, this.data.authData);
   const results = this.filteredObjectsByACL(r);
@@ -520,7 +538,7 @@ RestWrite.prototype.ensureUniqueAuthDataId = async function () {
 };
 
 RestWrite.prototype.handleAuthData = async function (authData) {
-  const r = await Auth.findUsersWithAuthData(this.config, authData);
+  const r = await Auth.findUsersWithAuthData(this.config, authData, true);
   const results = this.filteredObjectsByACL(r);
 
   const userId = this.getUserId();
@@ -810,7 +828,7 @@ RestWrite.prototype._validateEmail = function () {
 };
 
 RestWrite.prototype._validatePasswordPolicy = function () {
-  if (!this.config.passwordPolicy) return Promise.resolve();
+  if (!this.config.passwordPolicy) { return Promise.resolve(); }
   return this._validatePasswordRequirements().then(() => {
     return this._validatePasswordHistory();
   });
@@ -845,7 +863,7 @@ RestWrite.prototype._validatePasswordRequirements = function () {
     if (this.data.username) {
       // username is not passed during password reset
       if (this.data.password.indexOf(this.data.username) >= 0)
-        return Promise.reject(new Parse.Error(Parse.Error.VALIDATION_ERROR, containsUsernameError));
+      { return Promise.reject(new Parse.Error(Parse.Error.VALIDATION_ERROR, containsUsernameError)); }
     } else {
       // retrieve the User object using objectId during password reset
       return this.config.database.find('_User', { objectId: this.objectId() }).then(results => {
@@ -853,9 +871,9 @@ RestWrite.prototype._validatePasswordRequirements = function () {
           throw undefined;
         }
         if (this.data.password.indexOf(results[0].username) >= 0)
-          return Promise.reject(
-            new Parse.Error(Parse.Error.VALIDATION_ERROR, containsUsernameError)
-          );
+        { return Promise.reject(
+          new Parse.Error(Parse.Error.VALIDATION_ERROR, containsUsernameError)
+        ); }
         return Promise.resolve();
       });
     }
@@ -880,18 +898,18 @@ RestWrite.prototype._validatePasswordHistory = function () {
         const user = results[0];
         let oldPasswords = [];
         if (user._password_history)
-          oldPasswords = _.take(
-            user._password_history,
-            this.config.passwordPolicy.maxPasswordHistory - 1
-          );
+        { oldPasswords = _.take(
+          user._password_history,
+          this.config.passwordPolicy.maxPasswordHistory - 1
+        ); }
         oldPasswords.push(user.password);
         const newPassword = this.data.password;
         // compare the new password hash with all old password hashes
         const promises = oldPasswords.map(function (hash) {
           return passwordCrypto.compare(newPassword, hash).then(result => {
             if (result)
-              // reject if there is a match
-              return Promise.reject('REPEAT_PASSWORD');
+            // reject if there is a match
+            { return Promise.reject('REPEAT_PASSWORD'); }
             return Promise.resolve();
           });
         });
@@ -902,13 +920,13 @@ RestWrite.prototype._validatePasswordHistory = function () {
           })
           .catch(err => {
             if (err === 'REPEAT_PASSWORD')
-              // a match was found
-              return Promise.reject(
-                new Parse.Error(
-                  Parse.Error.VALIDATION_ERROR,
-                  `New password should not be the same as last ${this.config.passwordPolicy.maxPasswordHistory} passwords.`
-                )
-              );
+            // a match was found
+            { return Promise.reject(
+              new Parse.Error(
+                Parse.Error.VALIDATION_ERROR,
+                `New password should not be the same as last ${this.config.passwordPolicy.maxPasswordHistory} passwords.`
+              )
+            ); }
             throw err;
           });
       });

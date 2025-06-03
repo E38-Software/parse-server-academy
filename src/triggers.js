@@ -859,7 +859,7 @@ export function maybeRunTrigger(
   }
   return new Promise(function (resolve, reject) {
     var trigger = getTrigger(parseObject.className, triggerType, config.applicationId);
-    if (!trigger) return resolve();
+    if (!trigger) { return resolve(); }
     var request = getRequestObject(
       triggerType,
       auth,
@@ -1004,6 +1004,9 @@ export async function maybeRunFileTrigger(triggerType, fileObject, config, auth)
         return fileObject;
       }
       const result = await fileTrigger(request);
+      if (request.forceDownload) {
+        fileObject.forceDownload = true;
+      }
       logTriggerSuccessBeforeHook(
         triggerType,
         'Parse.File',
